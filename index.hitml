@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>竹かごキャッチ・竹藪修行編</title>
+    <style>
+        body {
+            margin: 0; overflow: hidden; background-color: #1a2a1a;
+            font-family: sans-serif; touch-action: none;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh;
+        }
+        #game-container {
+            position: relative; width: 90vw; height: 65vh; max-width: 400px; max-height: 600px;
+            /* 背景を地面の色（濃い緑）に変更 */
+            background-color: #2d4c2d; border: 4px solid #3e2723; border-radius: 20px; overflow: hidden;
+        }
+        canvas { display: block; }
+        #ui-left {
+            position: absolute; top: 15px; left: 15px; font-size: 14px;
+            color: #ffffff; font-weight: bold; pointer-events: none; z-index: 10; text-shadow: 1px 1px 2px #000;
+        }
+        #ui-right {
+            position: absolute; top: 15px; right: 15px; font-size: 16px;
+            color: #ffeb3b; font-weight: bold; pointer-events: none; z-index: 10; text-shadow: 1px 1px 2px #000;
+        }
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 20; color: white; text-align: center;
+        }
+        .btn-main {
+            padding: 15px 35px; font-size: 22px; font-weight: bold;
+            color: white; background-color: #2e7d32; border: none; border-radius: 50px;
+            cursor: pointer; margin-top: 20px; box-shadow: 0 4px #1b5e20;
+        }
+        .btn-main:active { margin-top: 24px; box-shadow: none; }
+        #controls {
+            margin-top: 20px; display: grid;
+            grid-template-columns: repeat(3, 65px); grid-template-rows: repeat(2, 65px); gap: 10px;
+        }
+        .btn-dir {
+            width: 65px; height: 65px; background-color: #4e342e; color: white; border-radius: 12px;
+            display: flex; justify-content: center; align-items: center; font-size: 24px; opacity: 0.9;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-left">
+            スコア: <span id="scoreVal">0</span> |
+            ダメージ: <span id="damageVal">0</span>/3
+        </div>
+        <div id="ui-right">TIME: <span id="timeVal">60</span></div>
+        
+        <div id="start-screen" class="overlay">
+            <h2 style="margin-bottom:10px;">竹藪修行！竹かごキャッチ</h2>
+            <p>飛んでくる宝をキャッチ！<br>手裏剣に当たるとダメージ！</p>
+            <button id="start-button" class="btn-main">修行開始</button>
+        </div>
+
+        <div id="result-screen" class="overlay" style="display: none;">
+            <h2 id="result-title">修行終了！</h2>
+            <div id="result-score" style="font-size: 32px; color: #FFD700;">0点</div>
+            <button id="retry-button" class="btn-main">再挑戦</button>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <div id="controls">
+        <div class="btn-dir" id="up" style="grid-column: 2; grid-row: 1;">↑</div>
+        <div class="btn-dir" id="left" style="grid-column: 1; grid-row: 2;">←</div>
+        <div class="btn-dir" id="down" style="grid-column: 2; grid-row: 2;">↓</div>
+        <div class="btn-dir" id="right" style="grid-column: 3; grid-row: 2;">→</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const container = document.getElementById('game-container');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('scoreVal');
+        const damageElement = document.getElementById('damageVal');
+        const timeElement = document.getElementById('timeVal');
+        const startScreen = document.getElementById('start-screen');
+        const resultScreen = document.getElementById('result-screen');
+        const resultTitle = document.getElementById('result-title');
+
+        let isGameActive = false;
+        let score = 0;
+        let damage = 0;
+        let timeLeft = 60;
+        let lastBallTime = 0;
+        let balls = [];
+        let shurikens = [];
+        let bambooForest = []; // 竹のデータを保持
+
+        const player = { x: 0, y: 0, angle: 0, speed: 6, face: "😊" };
+        const keys = { up: false, down: false, left: false, right: false };
+
+        function resize() {
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            player.x = canvas.width / 2;
+            player.y = canvas.height / 2;
+            createBamboo(); // リサイズ時に竹を再生成
+        }
+
+        // 竹藪の背景データを生成
+        function createBamboo() {
+            bambooForest = [];
+            const count = 12;
+            for(let i=0; i<count; i++) {
+                bambooForest.push({
+                    x: Math.random() * canvas.width,
+                    width: 15 + Math.random() * 20,
+                    color: `rgba(46, ${80 + Math.random() * 40}, 34, 0.6)`
+                });
+            }
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        function setupButton(id, key) {
+            const btn = document.getElementById(id);
+            const start = (e) => { e.preventDefault(); keys[key] = true; };
+            const end = (e) => { e.preventDefault(); keys[key] = false; };
+            btn.addEventListener('touchstart', start); btn.addEventListener('touchend', end);
+            btn.addEventListener('mousedown', start); btn.addEventListener('mouseup', end);
+        }
+        setupButton('up', 'up'); setupButton('down', 'down');
+        setupButton('left', 'left'); setupButton('right', 'right');
+
+        function initGame() {
+            score = 0; damage = 0; timeLeft = 60;
+            balls = []; shurikens = [];
+            player.face = "😊";
+            isGameActive = true;
+            lastBallTime = Date.now();
+            scoreElement.innerText = score;
+            damageElement.innerText = damage;
+            timeElement.innerText = timeLeft;
+            startScreen.style.display = 'none';
+            resultScreen.style.display = 'none';
+        }
+
+        document.getElementById('start-button').addEventListener('click', initGame);
+        document.getElementById('retry-button').addEventListener('click', initGame);
+
+        setInterval(() => {
+            if (isGameActive) {
+                timeLeft--;
+                timeElement.innerText = timeLeft;
+                if (timeLeft <= 0) endGame("タイムアップ！");
+            }
+        }, 1000);
+
+        function endGame(title) {
+            isGameActive = false;
+            resultTitle.innerText = title;
+            document.getElementById('result-score').innerText = score + " 点";
+            resultScreen.style.display = 'flex';
+        }
+
+        function createBall() {
+            if (balls.length >= 6) return;
+            const side = Math.floor(Math.random() * 4);
+            let x, y;
+            if (side === 0) { x = Math.random() * canvas.width; y = -30; }
+            else if (side === 1) { x = canvas.width + 30; y = Math.random() * canvas.height; }
+            else if (side === 2) { x = Math.random() * canvas.width; y = canvas.height + 30; }
+            else { x = -30; y = Math.random() * canvas.height; }
+
+            const tx = Math.random() * canvas.width;
+            const ty = Math.random() * canvas.height;
+            const angle = Math.atan2(ty - y, tx - x);
+            const speed = 2 + Math.random() * 2;
+            const isBlue = Math.random() < 0.2;
+
+            balls.push({
+                x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
+                color: isBlue ? "#ffd700" : "#ff5722", // 宝のような色に変更
+                points: isBlue ? 5 : 1, prevRy: 0
+            });
+            lastBallTime = Date.now();
+        }
+
+        function createShuriken() {
+            if (!isGameActive || shurikens.length > 0) return;
+            const side = Math.floor(Math.random() * 4);
+            let x, y;
+            if (side === 0) { x = Math.random() * canvas.width; y = -30; }
+            else if (side === 1) { x = canvas.width + 30; y = Math.random() * canvas.height; }
+            else if (side === 2) { x = Math.random() * canvas.width; y = canvas.height + 30; }
+            else { x = -30; y = Math.random() * canvas.height; }
+
+            const tx = Math.random() * canvas.width;
+            const ty = Math.random() * canvas.height;
+            const angle = Math.atan2(ty - y, tx - x);
+            shurikens.push({
+                x, y, vx: Math.cos(angle) * 3, vy: Math.sin(angle) * 3, rot: 0
+            });
+        }
+        setInterval(createShuriken, 2500);
+
+        // 竹藪を描画する関数
+        function drawBambooBackground() {
+            bambooForest.forEach(b => {
+                ctx.fillStyle = b.color;
+                ctx.fillRect(b.x, 0, b.width, canvas.height);
+                // 竹の節（ふし）を描画
+                ctx.strokeStyle = "rgba(20, 40, 20, 0.3)";
+                ctx.lineWidth = 2;
+                for(let i=1; i<6; i++) {
+                    ctx.beginPath();
+                    ctx.moveTo(b.x, (canvas.height / 6) * i);
+                    ctx.lineTo(b.x + b.width, (canvas.height / 6) * i);
+                    ctx.stroke();
+                }
+            });
+        }
+
+        function drawTakekago() {
+            ctx.fillStyle = "#E3D1A2";
+            ctx.beginPath();
+            ctx.moveTo(-40, -30); ctx.lineTo(40, -30);
+            ctx.lineTo(30, -10); ctx.lineTo(-30, -10);
+            ctx.closePath(); ctx.fill();
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = "#8d6e63"; // 紐の色を茶系に
+            ctx.beginPath(); ctx.moveTo(-40, -30); ctx.lineTo(40, -30); ctx.stroke();
+        }
+
+        function drawShuriken(s) {
+            ctx.save();
+            ctx.translate(s.x, s.y);
+            ctx.rotate(s.rot);
+            ctx.fillStyle = "#9e9e9e";
+            for(let i=0; i<4; i++) {
+                ctx.rotate(Math.PI/2);
+                ctx.beginPath();
+                ctx.moveTo(0, 0); ctx.lineTo(18, 0); ctx.lineTo(0, 6);
+                ctx.fill();
+            }
+            ctx.restore();
+            s.rot += 0.2;
+        }
+
+        function update() {
+            if (!isGameActive) return;
+
+            const now = Date.now();
+            if ((balls.length === 0 && (now - lastBallTime) > 2000) || (Math.random() < 0.02 && balls.length < 6)) {
+                createBall();
+            }
+
+            if (keys.left) { player.x -= player.speed; player.angle = -Math.PI/2; }
+            if (keys.right) { player.x += player.speed; player.angle = Math.PI/2; }
+            if (keys.up) { player.y -= player.speed; player.angle = 0; }
+            if (keys.down) { player.y += player.speed; player.angle = Math.PI; }
+
+            player.x = Math.max(40, Math.min(canvas.width - 40, player.x));
+            player.y = Math.max(40, Math.min(canvas.height - 40, player.y));
+
+            for (let i = balls.length - 1; i >= 0; i--) {
+                const b = balls[i];
+                b.x += b.vx; b.y += b.vy;
+                const dx = b.x - player.x; const dy = b.y - player.y;
+                const cos = Math.cos(-player.angle); const sin = Math.sin(-player.angle);
+                const rx = dx * cos - dy * sin; const ry = dx * sin + dy * cos;
+                if (rx > -40 && rx < 40 && b.prevRy < -30 && ry >= -30) {
+                    score += b.points;
+                    scoreElement.innerText = score;
+                    balls.splice(i, 1); continue;
+                }
+                b.prevRy = ry;
+                if (b.x < -50 || b.x > canvas.width + 50 || b.y < -50 || b.y > canvas.height + 50) balls.splice(i, 1);
+            }
+
+            for (let i = shurikens.length - 1; i >= 0; i--) {
+                const s = shurikens[i];
+                s.x += s.vx; s.y += s.vy;
+                const dist = Math.hypot(s.x - player.x, s.y - player.y);
+                if (dist < 35) {
+                    damage++;
+                    damageElement.innerText = damage;
+                    shurikens.splice(i, 1);
+                    if (damage === 1) player.face = "💢";
+                    if (damage === 2) player.face = "😭";
+                    if (damage >= 3) endGame("ゲームオーバー！");
+                    continue;
+                }
+                if (s.x < -50 || s.x > canvas.width + 50 || s.y < -50 || s.y > canvas.height + 50) shurikens.splice(i, 1);
+            }
+        }
+
+        function loop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 背景描画
+            drawBambooBackground();
+
+            balls.forEach(b => {
+                ctx.fillStyle = b.color;
+                ctx.beginPath(); ctx.arc(b.x, b.y, 10, 0, Math.PI * 2); ctx.fill();
+                ctx.strokeStyle = "white"; ctx.lineWidth = 1; ctx.stroke(); // 光沢感
+            });
+            shurikens.forEach(drawShuriken);
+            
+            ctx.save();
+            ctx.translate(player.x, player.y);
+            ctx.rotate(player.angle);
+            // 忍者描画（黒装束風）
+            ctx.lineWidth = 6; ctx.strokeStyle = "#212121";
+            ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(-30, -15);
+            ctx.moveTo(0, 10); ctx.lineTo(30, -15); ctx.stroke();
+            ctx.fillStyle = "#212121"; ctx.fillRect(-10, 10, 20, 30);
+            ctx.font = "24px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText(player.face, 0, 5);
+            drawTakekago();
+            ctx.restore();
+
+            update();
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html> 
